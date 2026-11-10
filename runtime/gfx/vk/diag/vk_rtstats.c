@@ -12,7 +12,10 @@
 // Costs: the copies on the GPU in the sampled frames and one CPU thread decoding them; nothing on the game thread or
 // in the replay's recording but the copy commands. Copies beyond RTSTATS_CAP bytes in flight are skipped and counted.
 // Formats and decoding are the frame dump's (vk_dump_img.c); multisampled targets, BC block views and 3D slices are
-// left out, as the dump leaves them.
+// left out, as the dump leaves them, and so are targets in the feedback loop layout. A pass the replay ends only to
+// split its command buffer (vk_exec.c maybe_split) is not copied: its targets are half drawn and a cleared one would
+// read as constant. Other ends the game did not ask for (a barrier, the end of a submission) are copied: a constant
+// report is a lead to check in a dump, not a verdict.
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -205,8 +208,10 @@ static void copy(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspe
     vk_completion_add(ex->fence, job_ready, j);
 }
 
-static void target(VkExec *ex, const VkExecTarget *t, const char *tag) {
-    if (!t->image || t->samples > 1 || t->blocks || t->is3d) return;
+// fbl: the target is attached in the feedback loop layout, which a copy cannot read (vk_exec.c barrier_to takes it
+// back to GENERAL later): left out.
+static void target(VkExec *ex, const VkExecTarget *t, const char *tag, int fbl) {
+    if (!t->image || t->samples > 1 || t->blocks || t->is3d || fbl) return;
     copy(ex, t->image, t->format, t->aspect, t->level, t->base_layer, t->width, t->height, tag);
 }
 
@@ -215,9 +220,9 @@ void vk_rtstats_pass_end(VkExec *ex) {
     for (int i = 0; i < 8; i++) {
         char tag[8];
         snprintf(tag, sizeof tag, "t%d", i);
-        target(ex, &ex->color[i], tag);
+        target(ex, &ex->color[i], tag, ex->fbl_mask >> i & 1);
     }
-    target(ex, &ex->depth, "td");
+    target(ex, &ex->depth, "td", ex->fbl_mask >> 8 & 1);
 }
 
 // The storage images the dispatch writes, found as vk_dump_dispatch finds them.
