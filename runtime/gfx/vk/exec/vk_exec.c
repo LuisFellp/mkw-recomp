@@ -263,6 +263,7 @@ void vk_exec_pass_end(VkExec *ex) {
     ex->in_pass = 0;
     vk_ind_read_pass_end(ex);
     if (vk_dump_armed) vk_dump_pass_end(ex);
+    if (vk_rtstats_on) vk_rtstats_pass_end(ex);
     uint64_t stamp = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1;
     for (int i = 0; i < 8; i++)
         if (ex->color[i].image) {
@@ -674,7 +675,7 @@ int vk_exec_record(VkCommandBuffer cb, const uint64_t *handles, int n, uint64_t 
     uint64_t sl0 = sublog_on ? kern_now_ns() : 0;
     uint64_t sld = vk_exec_frame.draws_seen;
     VkExec *ex = &X;
-    if (!x_ready) state_reset(ex), vk_dump_init(), x_ready = 1;
+    if (!x_ready) state_reset(ex), vk_dump_init(), vk_rtstats_init(), x_ready = 1;
     vk_exec_draw_thread();
     ex->cb = cb;
     ex->fence = fence;

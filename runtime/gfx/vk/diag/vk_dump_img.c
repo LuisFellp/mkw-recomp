@@ -15,8 +15,6 @@
 // ---- formats
 
 enum { K_UNORM, K_SNORM, K_UINT, K_SINT, K_FLOAT, K_RGB10A2, K_BGR10A2, K_RG11B10, K_E5, K_R5G6B5, K_D16, K_D24, K_D32F };
-enum { M_UNORM, M_SNORM, M_INT, M_FLOAT, M_DEPTH };
-typedef struct { VkFormat vk; const char *name; uint8_t bytes, nc, bits, kind, bgr; } Fmt;
 
 #define F(v, n, by, nc, bi, k) {VK_FORMAT_##v, n, by, nc, bi, k, 0}
 static const Fmt fmts[] = {
@@ -51,7 +49,7 @@ static const Fmt fmts[] = {
 };
 #undef F
 
-static const Fmt *fmt_of(VkFormat f) {
+const Fmt *fmt_of(VkFormat f) {
     for (size_t i = 0; i < sizeof fmts / sizeof fmts[0]; i++)
         if (fmts[i].vk == f) return &fmts[i];
     return NULL;
@@ -64,7 +62,7 @@ const char *fmt_name(VkFormat f, char tmp[16]) {
     return tmp;
 }
 
-static int mode_of(const Fmt *f) {
+int mode_of(const Fmt *f) {
     switch (f->kind) {
     case K_SNORM: return M_SNORM;
     case K_UINT: case K_SINT: return M_INT;
@@ -84,7 +82,7 @@ static float ufloat(uint32_t v, int mbits) {
 
 static int32_t sext(uint32_t v, int bits) { return bits >= 32 ? (int32_t)v : (int32_t)(v << (32 - bits)) >> (32 - bits); }
 
-static void decode(const Fmt *f, const uint8_t *p, float o[4]) {
+void decode(const Fmt *f, const uint8_t *p, float o[4]) {
     uint32_t u = 0;
     o[0] = o[1] = o[2] = 0, o[3] = 1;
     switch (f->kind) {

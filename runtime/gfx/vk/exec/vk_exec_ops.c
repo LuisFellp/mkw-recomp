@@ -288,6 +288,7 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     ex->last_dispatch = ex->recorded;
     vk_trace_3d_writes(ex, cs, info, d);
     if (vk_dump_armed) vk_dump_dispatch(ex, cs, p, info, d);
+    if (vk_rtstats_on) vk_rtstats_dispatch(ex, info);
 }
 
 // DispatchComputeIndirect: vkCmdDispatchIndirect from the pool buffer. The shader reads the group counts from c0 0x4,
@@ -335,6 +336,7 @@ static void op_dispatch_ind(VkExec *ex, const p_dispatch_ind *d) {
     vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDispatchIndirectCommand));
     VK_MEM_BOUND(ip);
     if (vk_dump_armed) vk_dump_dispatch(ex, cs, p, info, &(p_dispatch){0, 0, 0, d->caller});
+    if (vk_rtstats_on) vk_rtstats_dispatch(ex, info);
 }
 
 static void op_update_ub(VkExec *ex, const p_update_ub *u) {
