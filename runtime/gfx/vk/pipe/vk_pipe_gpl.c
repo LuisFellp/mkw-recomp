@@ -14,6 +14,16 @@
 
 #define LOG_ONCE(...) do { static volatile int32_t once_; if (!plat_xchg32(&once_, 1)) rt_log(__VA_ARGS__); } while (0)
 
+// MKW_PIPE_TRACE=1 (diagnosis): the shader a library is compiled from, logged before vkCreateGraphicsPipelines. The
+// driver's compiler crashes in there now and then (libnvidia-gpucomp, SIGSEGV, twice in the pause menu, 10/11/2026) and
+// the log names nothing; the last line before the crash is the shader it died on. stderr is flushed: the process dies
+// inside the call, and a redirected stderr would keep the line in its buffer.
+static int pipe_trace(void) {
+    static int on = -1;
+    if (on < 0) { const char *e = cfg_get("MKW_PIPE_TRACE"); on = e && *e && *e != '0'; }
+    return on;
+}
+
 // ---- graphics pipeline library (vk_caps.gpl)
 // A pipeline is linked from four libraries, each cached by the part of the pipeline key it depends on: vertex input
 // (topology class, vertex attributes without dynamic vertex input), pre-rasterization (vertex shader, the outputs its
@@ -145,6 +155,14 @@ static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPi
         ri.colorAttachmentCount = k->n_color, ri.pColorAttachmentFormats = (const VkFormat *)k->color;
         ri.depthAttachmentFormat = (VkFormat)k->depth, ri.stencilAttachmentFormat = (VkFormat)k->stencil;
         pi.pColorBlendState = &cb, pi.pMultisampleState = &ms;
+    }
+    if (pipe_trace() && (kind == LIB_PR || kind == LIB_FS)) {
+        const GfxShader *sh = kind == LIB_PR ? s->vs : s->fs;
+        const uint8_t *sk = sh ? gfx_shader_key(sh) : NULL;
+        char hex[65] = "";
+        for (int i = 0; sk && i < 32; i++) sprintf(hex + 2 * i, "%02x", sk[i]);
+        rt_log("vk_pipeline: compiling %s %s thread %u", kind == LIB_PR ? "vs" : "fs", sk ? hex : "(none)", plat_thread_id());
+        fflush(stderr);
     }
     if (vkCreateGraphicsPipelines(P.device, P.cache, 1, &pi, NULL, &pipe) != VK_SUCCESS) pipe = VK_NULL_HANDLE;
 out:
