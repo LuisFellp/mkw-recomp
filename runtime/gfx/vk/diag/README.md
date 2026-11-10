@@ -5,7 +5,7 @@ Back end diagnostics and measurements: frame dump, GPU time per pass and the sub
 | File | What it is |
 |---|---|
 | `vk_timeline.c` | `MKW_TRACE_TL=1` (measurement): each frame's submits on a single clock (game, replay, calibrated GPU, fence, waits), one line every 600 frames |
-| `vk_dump.c`, `vk_dump_internal.h` | `MKW_DUMP=<frame>`: dumps a frame to PNG (RenderDoc does not capture this back end): passes, draws and dispatches; the header is what the parts share |
+| `vk_dump.c`, `vk_dump_internal.h` | `MKW_DUMP=<frame>`: dumps a frame to PNG (RenderDoc does not capture this back end): passes, draws and dispatches; `MKW_DUMP_DRAWS=<from>-<to>` (or an fs hash) also copies the first colour target after every draw of passes in the range, splitting and resuming rendering for valid snapshots, `MKW_DUMP_DRAWS_RECT=x,y,w,h` only a rectangle of it; the header is what the parts share |
 | `vk_dump_img.c` | Part of the dump: formats, copy of each image to a buffer and its PNGs |
 | `vk_dump_buf.c` | Part of the dump: `MKW_DUMP_BUF`, a buffer range after each pass |
 | `vk_rtstats.c` | `MKW_RTSTATS=<N>` (diagnosis): one frame in N (default 60), each pass's targets and each dispatch's storage images are copied out and read on threads of their own; a NaN, an infinity or a constant target is logged once per target and program (`rtstats:` lines), so bugs that render without any error reach the log. Decodes with `vk_dump_img.c`'s formats |

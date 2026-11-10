@@ -248,10 +248,10 @@ static void job_done(void *arg) {
 // ---- recording
 
 // Records the copy of one subresource into a host buffer and queues its PNGs. Returns NULL, or why it was skipped.
-// The buffer is w x h x d texels of vf; the image region is `ext` image texels at depth plane z (differs for the
-// blocks of a BC image read as an uncompressed format of the block size, and for a 3D slice).
+// The buffer is w x h x d texels of vf; the image region is `ext` image texels from off (differs for the blocks of a
+// BC image read as an uncompressed format of the block size, a 3D slice, and a draw snapshot's MKW_DUMP_DRAWS_RECT).
 const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspect, uint32_t level,
-                               uint32_t layer, uint32_t z, VkExtent3D ext, uint32_t w, uint32_t h, uint32_t d,
+                               uint32_t layer, VkOffset3D off, VkExtent3D ext, uint32_t w, uint32_t h, uint32_t d,
                                const char *name) {
     const Fmt *f = fmt_of(vf);
     if (!f) return "format not decoded";
@@ -288,7 +288,7 @@ const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFla
                              .dstAccessMask = VK_ACCESS_2_HOST_READ_BIT};
     VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &pre};
     vkCmdPipelineBarrier2(ex->cb, &di);
-    VkBufferImageCopy r = {.imageSubresource = {aspect, level, layer, 1}, .imageOffset = {0, 0, (int32_t)z},
+    VkBufferImageCopy r = {.imageSubresource = {aspect, level, layer, 1}, .imageOffset = off,
                            .imageExtent = ext};   // packed rows: a BC row of ext.width texels is w blocks
     vkCmdCopyImageToBuffer(ex->cb, image, VK_IMAGE_LAYOUT_GENERAL, j->buf, 1, &r);
     di.pMemoryBarriers = &post;
@@ -302,6 +302,6 @@ const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFla
 
 const char *copy_out(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspect, uint32_t level,
                             uint32_t layer, uint32_t w, uint32_t h, uint32_t d, const char *name) {
-    return copy_region(ex, image, vf, aspect, level, layer, 0, (VkExtent3D){w, h, d}, w, h, d, name);
+    return copy_region(ex, image, vf, aspect, level, layer, (VkOffset3D){0, 0, 0}, (VkExtent3D){w, h, d}, w, h, d, name);
 }
 

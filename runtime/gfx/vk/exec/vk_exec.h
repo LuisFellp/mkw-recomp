@@ -185,7 +185,9 @@ int vk_dump_rearm(const char *dir, int ubo, int luts, int log_n);   // MKW_CTL: 
                                                                    // logging the ones before; 0 while one is pending
 void vk_dump_init(void);                 // reads the environment; vk_exec_record's first call
 void vk_dump_pass_end(VkExec *ex);       // after vkCmdEndRendering
-void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info);   // after a draw's binds
+void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info);   // after a draw's binds;
+                                                                                           // marks the draws MKW_DUMP_DRAWS selects
+void vk_dump_draw_after(VkExec *ex);     // after vkCmdDraw*: MKW_DUMP_DRAWS copies after the actual draw
 void vk_dump_dispatch(VkExec *ex, const GfxShader *cs, VkPipeline p, const VkPipeInfo *info, const p_dispatch *d);
 void vk_trace_3d_writes(VkExec *ex, const GfxShader *cs, const VkPipeInfo *info, const p_dispatch *d);
 void vk_dump_copy(VkExec *ex, uint32_t op, const void *payload);   // before a copy or texture clear is replayed
