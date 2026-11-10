@@ -1,6 +1,6 @@
 // MKW_RTSTATS=<N> (diagnosis, off by default): one frame in N (60 when the value is not a number above 0), every
 // render pass's colour and depth targets and every storage image a dispatch writes are copied into host buffers after
-// the pass, and a thread of its own reads their values once the submission is done. A target is reported in the log
+// the pass, and threads of their own read their values once the submission is done. A target is reported in the log
 // ("rtstats:" lines) when
 //   nan       some texel holds a NaN (with how many and their bounding box: a row or a column is a clue)
 //   inf       some texel holds an infinity
@@ -9,7 +9,7 @@
 // Each report goes out once per rule, target slot, format, size and program (ex->prog's serial), so a NaN that
 // stays on screen is one line, not one per sampled frame. These bugs render without any error: the point is to have
 // them in the log, where a watcher reads them, instead of in a screenshot someone has to look at.
-// Costs: the copies on the GPU in the sampled frames and one CPU thread decoding them; nothing on the game thread or
+// Costs: the copies on the GPU in the sampled frames and WORKERS CPU threads reading them; nothing on the game thread or
 // in the replay's recording but the copy commands. Copies beyond RTSTATS_CAP bytes in flight are skipped and counted.
 // Formats and decoding are the frame dump's (vk_dump_img.c); multisampled targets, BC block views and 3D slices are
 // left out, as the dump leaves them, and so are targets in the feedback loop layout. A pass the replay ends only to
@@ -31,12 +31,13 @@
 
 #define RTSTATS_CAP (512ull << 20)   // bytes of copies in flight; half the dump's, as this runs for the whole session
 #define SEEN_CAP 4096                // distinct reports remembered (a power of two)
+#define WORKERS 3                    // checking threads: one fell behind in a race (run rtstats1)
 #define CONST_MIN 16                 // smallest side of a target the constant rule looks at: 1x1 and 4x4 reductions
                                      // are constant by nature
 
 int vk_rtstats_on;
 static uint32_t every = 60;
-static volatile int64_t rs_inflight, pending, skipped;   // rs_: the dump has its own inflight
+static volatile int64_t rs_inflight, pending, skipped, made;   // rs_: the dump has its own inflight
 static volatile uint64_t hits[VK_RTSTATS_RULES];
 
 typedef struct Job {
@@ -78,14 +79,22 @@ static int first_time(int rule, const Job *j) {
     }
 }
 
+// Constant: every texel's bytes equal the one before (one memcmp of the buffer against itself shifted by a texel).
+// NaN and infinity: only formats that can hold them are decoded, texel by texel; the others need nothing more. Decoding
+// every texel of every format kept one thread busy past the cap (run rtstats1: 12000 copies skipped in a race, the
+// 6144x6144 rgba8sn atlas alone 37M texels).
 static void scan(const Job *j) {
     uint64_t nan = 0, inf = 0, n = (uint64_t)j->w * j->h;
     uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;   // bounding box of the NaNs
-    float first[4] = {0}, o[4];
-    int same = 1, nc = j->f->nc;
-    for (uint32_t y = 0; y < j->h; y++)
+    size_t b = j->f->bytes;
+    int nc = j->f->nc, mode = mode_of(j->f);
+    int same = n < 2 || !memcmp(j->map, j->map + b, (size_t)(n - 1) * b);
+    int floats = mode == M_FLOAT || j->f->vk == VK_FORMAT_D32_SFLOAT || j->f->vk == VK_FORMAT_D32_SFLOAT_S8_UINT;
+    float first[4], o[4];
+    decode(j->f, j->map, first);
+    for (uint32_t y = 0; floats && y < j->h; y++)
         for (uint32_t x = 0; x < j->w; x++) {
-            decode(j->f, j->map + ((uint64_t)y * j->w + x) * j->f->bytes, o);
+            decode(j->f, j->map + ((uint64_t)y * j->w + x) * b, o);
             int has_nan = 0, has_inf = 0;
             for (int c = 0; c < nc; c++) has_nan |= isnan(o[c]), has_inf |= isinf(o[c]);
             if (has_nan) {
@@ -95,8 +104,6 @@ static void scan(const Job *j) {
                 y1 = y;
             }
             inf += has_inf;
-            if (!x && !y) memcpy(first, o, sizeof first);
-            else if (same && memcmp(first, o, sizeof(float) * (size_t)nc)) same = 0;
         }
     char fn[16], head[160];
     snprintf(head, sizeof head, "frame %llu prog %llu %s %s %ux%u", (unsigned long long)j->frame,
@@ -165,7 +172,8 @@ static void copy(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspe
     if ((uint64_t)rs_inflight + bytes > RTSTATS_CAP) {
         int64_t s = plat_add64(&skipped, 1);
         if (s == 1 || s % 1000 == 0)
-            rt_log("rtstats: %lld copies skipped so far: over %llu MB in flight", (long long)s, RTSTATS_CAP >> 20);
+            rt_log("rtstats: %lld of %lld copies skipped so far: over %llu MB in flight", (long long)s,
+                   (long long)(s + made), RTSTATS_CAP >> 20);
         return;
     }
     Job *j = calloc(1, sizeof *j);
@@ -202,6 +210,7 @@ static void copy(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspe
     vkCmdPipelineBarrier2(ex->cb, &di);
     ex->recorded += 3;
     plat_add64(&rs_inflight, (int64_t)bytes);
+    plat_add64(&made, 1);
     plat_mutex_lock(&q_lock);
     pending++;
     plat_mutex_unlock(&q_lock);
@@ -250,11 +259,9 @@ void vk_rtstats_dispatch(VkExec *ex, const VkPipeInfo *info) {
 void vk_rtstats_every(uint32_t n) {
     every = n ? n : 1;
     if (vk_rtstats_on) return;
-    if (!plat_thread_spawn(worker, NULL, "rtstats", 0)) {
-        rt_log("rtstats: cannot start its thread, off");
-        return;
-    }
-    vk_rtstats_on = 1;
+    for (int i = 0; i < WORKERS; i++)
+        if (plat_thread_spawn(worker, NULL, "rtstats", 0)) vk_rtstats_on = 1;
+    if (!vk_rtstats_on) rt_log("rtstats: cannot start its threads, off");
 }
 
 void vk_rtstats_init(void) {
