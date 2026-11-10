@@ -12,6 +12,7 @@
 #include "nvn_tex.h"
 #include "tex.h"
 #include "vk.h"
+#include "vk_defaults.h"
 #include "vk_exec.h"
 #include "vk_tex_internal.h"
 #include "platform/platform.h"
@@ -223,9 +224,9 @@ static int astc_alpha_one(const uint8_t *p, uint64_t size, int bw, int bh) {
     return any;
 }
 
-// Texture memory made before play (MKW_VK_TEX_POOL_MIN=<blocks>, default half the VRAM, 0 off; by default on discrete
-// GPUs only, a value set makes it on any): a pool of fixed 256 MiB blocks, that many of them allocated at start on a
-// thread of their own, takes the textures of its memory type.
+// Texture memory made before play (MKW_VK_TEX_POOL_MIN=<blocks>, default half the VRAM up to 8, 0 off; by default on
+// discrete GPUs only, a value set makes it on any): a pool of fixed 256 MiB blocks, that many of them allocated at
+// start on a thread of their own, takes the textures of its memory type.
 // On a GTX 1050 Ti the race load spent 79-93 % of a 2.2 s frame on the replay thread in vkAllocateMemory: VMA's
 // default pools, over the driver's budget (which counts the imported host memory), give every texture its own
 // allocation (VmaBlockVector::AllocatePage), and a pool whose blocks are made on demand only moved that time into
@@ -270,7 +271,9 @@ void vk_tex_pool_start(void) {
     for (uint32_t h = 0; h < c->mem_props.memoryHeapCount; h++)
         if (c->mem_props.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT && c->mem_props.memoryHeaps[h].size > vram)
             vram = c->mem_props.memoryHeaps[h].size;
-    int blocks = e && *e ? atoi(e) : (int)(vram / 2 / TEX_POOL_BLOCK);   // default: half of the largest VRAM heap
+    int blocks = e && *e ? atoi(e)
+                         : (int)vk_default_tex_pool_blocks(
+                               c->props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU, vram >> 20);
     if (blocks <= 0) return;
     if (!plat_thread_spawn(tex_pool_main, (void *)(intptr_t)blocks, "vk tex pool", 0)) rt_log("vk: texture pool: no thread");
 }

@@ -7,7 +7,7 @@ submits and fences, present.
 |---|---|
 | `vk.h`, `vk_backend.c` | Internal header and back end: ties memory, textures, submits and present together |
 | `vk_device.c`, `vk_caps.c`, `vk_vma.cpp` | Instance, device, VMA (the only C++), and what the runtime decides from the GPU |
-| `vk_defaults.h`, `vk_defaults.c` | Memory caps with nothing set, from the player's GPU and RAM (`MKW_SPARSE_MIB`, `MKW_GPU_MEM_LIMIT` on an integrated GPU); pure, checked by `tests/test_defaults.py` |
+| `vk_defaults.h`, `vk_defaults.c` | Memory caps with nothing set, from the player's GPU and RAM (`MKW_SPARSE_MIB`, `MKW_GPU_MEM_LIMIT` on an integrated GPU, `MKW_VK_TEX_POOL_MIN`); pure, checked by `tests/test_defaults.py` |
 | `vk_destroy_count.h` | Routes every buffer, view or sampler destruction through `vk_destroy_note`: the draw cache is flushed when a stored set named that handle |
 | `vk_rec.h`, `vk_rec.c`, `vk_rec_cmds.c`, `vk_rec_int.h` | Recorder thread: the replay's `vkCmd*` calls are made by another thread in the same order; `vk_rec.c` holds the ring, the thread and the fixed-size commands, `vk_rec_cmds.c` the ones with arrays and the extension ones, and the internal header what they share |
 | `vk_rec_reuse.h`, `vk_rec_reuse.c` | `MKW_REUSE`: the command buffer's bound state by slots, capture of a draw's packets and their re-emission to the ring |
