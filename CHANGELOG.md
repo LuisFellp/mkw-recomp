@@ -4,6 +4,24 @@ Each version's section is that release's notes: `tools/build/notes.py` puts it i
 updating, known issues, reporting) for the GitHub release. A section has a summary paragraph, `### Changes` (each with
 its issue, #N), `### Tested` (what was run from the packages before publishing) and optionally `### Known issues`.
 
+## 0.1.7-luis.1
+
+Unofficial build of `main` (784a87d, after 0.1.7) with three open pull requests merged, for testing the GPU hang on
+AMD cards. Not an upstream release.
+
+### Changes
+
+- Merged #68: the texture pool preallocation is capped at 8 blocks (2 GiB) instead of half the VRAM.
+- Merged #80: `MKW_RTSTATS` and `MKW_DUMP_DRAWS`, diagnostics for rendering bugs that log no error.
+- Merged #81: `MKW_PIPE_TRACE` names the shader of each pipeline library before it compiles.
+- Includes `main` after 0.1.7: the FSR image resize waits for the device under the queue lock, and the shader
+  translation fixes (FMUL scale, pixel shader colour targets, MEMBAR/HADD2.SAT, FSWZADD).
+
+### Tested
+
+Built by CI from the merge, with the Linux AppImage and the Windows zip; the setup was not run from these packages
+yet.
+
 ## 0.1.7
 
 The game starts on AMD graphics cards under Windows, where the window did not open or the title froze.
