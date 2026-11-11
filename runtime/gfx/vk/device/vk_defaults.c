@@ -18,3 +18,16 @@ uint64_t vk_default_mem_limit_mib(uint64_t ram_mib) {
     uint64_t mib = ram_mib / 4 / 256 * 256;
     return mib > 4096 ? mib : 4096;
 }
+
+// Texture pool blocks made at start (vk_tex_image.c, MKW_VK_TEX_POOL_MIN). Discrete only. Half the VRAM, in 256 MiB
+// blocks, up to 8 (2 GiB): 8 blocks took the two long frames after «VALE» on the GTX 1050 Ti from 2 642 + 2 471 to
+// 1 661 + 1 476 ms (wtp8 / wtp0), and the pool grows past them on demand, so the cap costs only the reserve. Half a
+// 16 GB card (31 blocks, 7 750 MiB) was 92% of the runtime's own budget there (8 386 MiB, "heap 1 limited" in a
+// 9070 XT's log): the title screen reached 8 224 of 8 667 MiB and lost 19 sparse tile slots (issue #43, 10/11/2026),
+// the memory pressure behind a device loss. Integrated GPUs keep no pool (the path was only ever measured on discrete
+// ones).
+uint32_t vk_default_tex_pool_blocks(int discrete, uint64_t vram_mib) {
+    if (!discrete || !vram_mib) return 0;
+    uint64_t blocks = (vram_mib + 511) / 512;   // half the VRAM, rounded up to a block
+    return (uint32_t)(blocks > 8 ? 8 : blocks);
+}
