@@ -251,6 +251,10 @@ void vk_exec_pass_begin(VkExec *ex) {
     ex->in_pass = 1;
 }
 
+// Set while maybe_split ends a pass only to go on in a new command buffer: the targets are half drawn, MKW_RTSTATS
+// leaves them for the real end of the pass.
+static _Thread_local int split_ending;
+
 void vk_exec_pass_end(VkExec *ex) {
     if (!ex->in_pass) return;
     vk_exec_oq_pass_end(ex);
@@ -263,6 +267,7 @@ void vk_exec_pass_end(VkExec *ex) {
     ex->in_pass = 0;
     vk_ind_read_pass_end(ex);
     if (vk_dump_armed) vk_dump_pass_end(ex);
+    if (vk_rtstats_on && !split_ending) vk_rtstats_pass_end(ex);
     uint64_t stamp = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1;
     for (int i = 0; i < 8; i++)
         if (ex->color[i].image) {
@@ -374,7 +379,7 @@ static void maybe_split(VkExec *ex) {
     split_draws = 0;
     if (ex->recorded == part_start) return;
     int reopen = ex->in_pass;
-    if (reopen) vk_exec_pass_end(ex), n_in_pass++;
+    if (reopen) split_ending = 1, vk_exec_pass_end(ex), split_ending = 0, n_in_pass++;
     ex->cb = vk_sync_split();
     part_start = ex->recorded;
     part_t0 = kern_now_ns();
@@ -674,7 +679,7 @@ int vk_exec_record(VkCommandBuffer cb, const uint64_t *handles, int n, uint64_t 
     uint64_t sl0 = sublog_on ? kern_now_ns() : 0;
     uint64_t sld = vk_exec_frame.draws_seen;
     VkExec *ex = &X;
-    if (!x_ready) state_reset(ex), vk_dump_init(), x_ready = 1;
+    if (!x_ready) state_reset(ex), vk_dump_init(), vk_rtstats_init(), x_ready = 1;
     vk_exec_draw_thread();
     ex->cb = cb;
     ex->fence = fence;

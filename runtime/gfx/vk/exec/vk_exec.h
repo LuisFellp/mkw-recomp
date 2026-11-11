@@ -185,11 +185,25 @@ int vk_dump_rearm(const char *dir, int ubo, int luts, int log_n);   // MKW_CTL: 
                                                                    // logging the ones before; 0 while one is pending
 void vk_dump_init(void);                 // reads the environment; vk_exec_record's first call
 void vk_dump_pass_end(VkExec *ex);       // after vkCmdEndRendering
-void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info);   // after a draw's binds
+void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeInfo *info);   // after a draw's binds;
+                                                                                           // marks the draws MKW_DUMP_DRAWS selects
+void vk_dump_draw_after(VkExec *ex);     // after vkCmdDraw*: MKW_DUMP_DRAWS copies after the actual draw
 void vk_dump_dispatch(VkExec *ex, const GfxShader *cs, VkPipeline p, const VkPipeInfo *info, const p_dispatch *d);
 void vk_trace_3d_writes(VkExec *ex, const GfxShader *cs, const VkPipeInfo *info, const p_dispatch *d);
 void vk_dump_copy(VkExec *ex, uint32_t op, const void *payload);   // before a copy or texture clear is replayed
 void vk_dump_present(uint64_t frame);    // vk_be_present: waits for the dump frame's copies and closes the logs
+
+// MKW_RTSTATS=<N> (diag/vk_rtstats.c): one frame in N, each pass's targets and each dispatch's storage images are
+// copied out and checked on a thread of their own; a NaN, an infinity or a constant target is logged once
+// ("rtstats:"). The hooks run only when vk_rtstats_on is set.
+enum { VK_RTSTATS_NAN, VK_RTSTATS_INF, VK_RTSTATS_CONST, VK_RTSTATS_RULES };
+extern int vk_rtstats_on;
+void vk_rtstats_init(void);                                   // reads the environment; vk_exec_record's first call
+void vk_rtstats_every(uint32_t n);                            // turns it on, one frame in n (--probe-vkexec)
+void vk_rtstats_pass_end(VkExec *ex);                         // after vkCmdEndRendering
+void vk_rtstats_dispatch(VkExec *ex, const VkPipeInfo *info); // after a dispatch
+void vk_rtstats_flush(void);           // waits for every submission and for the checks of their copies
+uint64_t vk_rtstats_hits(int rule);    // targets that broke the rule so far, logged or not
 
 // c0, the NVN driver constant bank of one stage (vk_exec_ubuf.c; MKW_FIX_C0=0 binds zeros instead): bank is
 // VK_C0_BYTES, stage an NVN stage (0 vertex, 1 fragment, 5 compute), ssbo and ubo the 16 bound slots of that stage.

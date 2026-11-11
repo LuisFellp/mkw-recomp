@@ -15,8 +15,6 @@
 // ---- formats
 
 enum { K_UNORM, K_SNORM, K_UINT, K_SINT, K_FLOAT, K_RGB10A2, K_BGR10A2, K_RG11B10, K_E5, K_R5G6B5, K_D16, K_D24, K_D32F };
-enum { M_UNORM, M_SNORM, M_INT, M_FLOAT, M_DEPTH };
-typedef struct { VkFormat vk; const char *name; uint8_t bytes, nc, bits, kind, bgr; } Fmt;
 
 #define F(v, n, by, nc, bi, k) {VK_FORMAT_##v, n, by, nc, bi, k, 0}
 static const Fmt fmts[] = {
@@ -51,7 +49,7 @@ static const Fmt fmts[] = {
 };
 #undef F
 
-static const Fmt *fmt_of(VkFormat f) {
+const Fmt *fmt_of(VkFormat f) {
     for (size_t i = 0; i < sizeof fmts / sizeof fmts[0]; i++)
         if (fmts[i].vk == f) return &fmts[i];
     return NULL;
@@ -64,7 +62,7 @@ const char *fmt_name(VkFormat f, char tmp[16]) {
     return tmp;
 }
 
-static int mode_of(const Fmt *f) {
+int mode_of(const Fmt *f) {
     switch (f->kind) {
     case K_SNORM: return M_SNORM;
     case K_UINT: case K_SINT: return M_INT;
@@ -84,7 +82,7 @@ static float ufloat(uint32_t v, int mbits) {
 
 static int32_t sext(uint32_t v, int bits) { return bits >= 32 ? (int32_t)v : (int32_t)(v << (32 - bits)) >> (32 - bits); }
 
-static void decode(const Fmt *f, const uint8_t *p, float o[4]) {
+void decode(const Fmt *f, const uint8_t *p, float o[4]) {
     uint32_t u = 0;
     o[0] = o[1] = o[2] = 0, o[3] = 1;
     switch (f->kind) {
@@ -250,10 +248,10 @@ static void job_done(void *arg) {
 // ---- recording
 
 // Records the copy of one subresource into a host buffer and queues its PNGs. Returns NULL, or why it was skipped.
-// The buffer is w x h x d texels of vf; the image region is `ext` image texels at depth plane z (differs for the
-// blocks of a BC image read as an uncompressed format of the block size, and for a 3D slice).
+// The buffer is w x h x d texels of vf; the image region is `ext` image texels from off (differs for the blocks of a
+// BC image read as an uncompressed format of the block size, a 3D slice, and a draw snapshot's MKW_DUMP_DRAWS_RECT).
 const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspect, uint32_t level,
-                               uint32_t layer, uint32_t z, VkExtent3D ext, uint32_t w, uint32_t h, uint32_t d,
+                               uint32_t layer, VkOffset3D off, VkExtent3D ext, uint32_t w, uint32_t h, uint32_t d,
                                const char *name) {
     const Fmt *f = fmt_of(vf);
     if (!f) return "format not decoded";
@@ -290,7 +288,7 @@ const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFla
                              .dstAccessMask = VK_ACCESS_2_HOST_READ_BIT};
     VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &pre};
     vkCmdPipelineBarrier2(ex->cb, &di);
-    VkBufferImageCopy r = {.imageSubresource = {aspect, level, layer, 1}, .imageOffset = {0, 0, (int32_t)z},
+    VkBufferImageCopy r = {.imageSubresource = {aspect, level, layer, 1}, .imageOffset = off,
                            .imageExtent = ext};   // packed rows: a BC row of ext.width texels is w blocks
     vkCmdCopyImageToBuffer(ex->cb, image, VK_IMAGE_LAYOUT_GENERAL, j->buf, 1, &r);
     di.pMemoryBarriers = &post;
@@ -304,6 +302,6 @@ const char *copy_region(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFla
 
 const char *copy_out(VkExec *ex, VkImage image, VkFormat vf, VkImageAspectFlags aspect, uint32_t level,
                             uint32_t layer, uint32_t w, uint32_t h, uint32_t d, const char *name) {
-    return copy_region(ex, image, vf, aspect, level, layer, 0, (VkExtent3D){w, h, d}, w, h, d, name);
+    return copy_region(ex, image, vf, aspect, level, layer, (VkOffset3D){0, 0, 0}, (VkExtent3D){w, h, d}, w, h, d, name);
 }
 

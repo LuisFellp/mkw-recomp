@@ -57,6 +57,7 @@ static void op_draw(VkExec *ex, const p_draw *d) {
         vkCmdDraw(ex->cb, n, inst, first, (uint32_t)d->base_instance);
     }
     ex->recorded++;
+    if (vk_dump_armed) vk_dump_draw_after(ex);
 }
 
 // DrawMeshTasks(first, count): count task (or mesh) workgroups. NVN's first has no Vulkan counterpart; the game's
@@ -71,6 +72,7 @@ static void op_draw_mesh(VkExec *ex, const p_draw_mesh *d) {
     vk_exec_frame.draws++;
     rec_draw_mesh(draw_mesh, ex->cb, (uint32_t)d->count, 1, 1);   // through the recorder thread, as every command
     ex->recorded++;
+    if (vk_dump_armed) vk_dump_draw_after(ex);
 }
 
 // Primitive restart of an indexed draw. NVN restarts strips wherever an index equals the SetPrimitiveRestart value;
@@ -126,6 +128,7 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
     vkCmdDrawIndexed(ex->cb, (uint32_t)d->count, d->instances > 0 ? (uint32_t)d->instances : 1, 0, d->base_vertex,
                      (uint32_t)d->base_instance);
     ex->recorded++;
+    if (vk_dump_armed) vk_dump_draw_after(ex);
 }
 
 static int lost_on_draw(void) {   // MKW_SHADOW_LOST read once
@@ -229,6 +232,7 @@ static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
     else if (d->count) vkCmdDrawIndirectCount(ex->cb, ip.buffer, ip.offset, cp.buffer, cp.offset, max, stride);
     else vkCmdDrawIndirect(ex->cb, ip.buffer, ip.offset, 1, one);
     ex->recorded += 2;
+    if (vk_dump_armed) vk_dump_draw_after(ex);
     vk_mem_count(ip.cls, VK_MUSE_IND, span);
     VK_MEM_BOUND(ip);
     if (d->count) VK_MEM_BOUND(cp);
@@ -288,6 +292,7 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     ex->last_dispatch = ex->recorded;
     vk_trace_3d_writes(ex, cs, info, d);
     if (vk_dump_armed) vk_dump_dispatch(ex, cs, p, info, d);
+    if (vk_rtstats_on) vk_rtstats_dispatch(ex, info);
 }
 
 // DispatchComputeIndirect: vkCmdDispatchIndirect from the pool buffer. The shader reads the group counts from c0 0x4,
@@ -335,6 +340,7 @@ static void op_dispatch_ind(VkExec *ex, const p_dispatch_ind *d) {
     vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDispatchIndirectCommand));
     VK_MEM_BOUND(ip);
     if (vk_dump_armed) vk_dump_dispatch(ex, cs, p, info, &(p_dispatch){0, 0, 0, d->caller});
+    if (vk_rtstats_on) vk_rtstats_dispatch(ex, info);
 }
 
 static void op_update_ub(VkExec *ex, const p_update_ub *u) {
@@ -441,6 +447,7 @@ static void op_draw_mesh_cs(VkExec *ex, const p_draw_mesh *d) {
     if (task) vkCmdDrawIndexedIndirect(ex->cb, ab, ao + 12, 1, 20);   // args[3..7] (mesh_compact.comp)
     else vkCmdDrawIndexed(ex->cb, (uint32_t)nidx, 1, 0, 0, 0);
     ex->recorded += 3;
+    if (vk_dump_armed) vk_dump_draw_after(ex);
 }
 
 // The bind ops' effect on the replay state alone: 1 when op is one. The light walk (vk_exec.c, MKW_REPLAY_WALK)

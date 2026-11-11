@@ -3,7 +3,9 @@
 // the completion thread; a guest-memory word a callback writes is visible once fence_wait returns; finish drains every
 // submission; a present of a cleared vk_texture.c image (layout GENERAL) reads back exactly through the swapchain
 // capture. Clear part: a hand-built op stream (SET_RT to an RGBA8 and a D32 texture, whole-target clears,
-// then scissored clears) through submit reads back exactly with read_texels.
+// then scissored clears) through submit reads back exactly with read_texels. Rtstats part: MKW_RTSTATS's rules on
+// cleared targets (test_rtstats).
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -570,6 +572,45 @@ static int test_mirror(const GfxBackend *b, uint8_t *guest, int *bytes) {
     return 0;
 }
 
+// MKW_RTSTATS (diag/vk_rtstats.c), on for this part only, every frame: an RGBA16F target cleared to grey with a NaN
+// rectangle cleared in a pass breaks the nan rule and not the constant one; the same target cleared twice to grey
+// breaks the constant one. Each rule is counted from what the part adds.
+static int test_rtstats(const GfxBackend *b, uint8_t *guest) {
+    pool_t pool = {.magic = NVN_POOL_MAGIC, .flags = 0x22, .mem = guest + 0xE00000, .size = 0x100000,
+                   .game_mem = guest + 0xE00000};
+    CHECK(b->pool_init(&pool), "pool_init of a CPU-visible pool for the rtstats part");
+    static tex_t t;
+    init_tex(&t, &pool, 0, NVN_FORMAT_RGBA16F);
+    t.serial = 501;
+    CHECK(t.L.size <= 0x100000, "rtstats texture exceeds its pool");
+    vk_rtstats_every(1);
+    uint64_t nan0 = vk_rtstats_hits(VK_RTSTATS_NAN), inf0 = vk_rtstats_hits(VK_RTSTATS_INF);
+    uint64_t const0 = vk_rtstats_hits(VK_RTSTATS_CONST);
+    for (int k = 0; k < 2; k++) {   // 0: NaN rectangle, 1: grey everywhere
+        static _Alignas(8) uint8_t stream[1024];
+        uint8_t *p = put(stream, OP_BEGIN, NULL, 0);
+        p_set_rt rt;
+        memset(&rt, 0, sizeof rt);
+        rt.n = 1, rt.color[0] = &t;
+        p = put(p, OP_SET_RT, &rt, sizeof rt);
+        const p_clear_color grey = {0, 0xf, {0.5f, 0.5f, 0.5f, 1.0f}}, nan = {0, 0xf, {NAN, NAN, NAN, NAN}};
+        p = put(p, OP_CLEAR_COLOR, &grey, sizeof grey);   // outside a pass: not checked
+        const p_scissor sc = {SC_X, SC_Y, SC_W, SC_H}, full = {0, 0, 1 << 20, 1 << 20};
+        p = put(p, OP_SCISSOR, &sc, sizeof sc);
+        p = put(p, OP_CLEAR_COLOR, k ? &grey : &nan, sizeof grey);   // in a pass, checked at its end
+        p = put(p, OP_SCISSOR, &full, sizeof full);
+        CHECK(xf_submit(b, stream, p), "fence_wait of rtstats submission %d timed out", k);
+        vk_rtstats_flush();
+        uint64_t dn = vk_rtstats_hits(VK_RTSTATS_NAN) - nan0, dc = vk_rtstats_hits(VK_RTSTATS_CONST) - const0;
+        CHECK(dn == 1 && dc == (uint64_t)k, "after submission %d: nan rule hit %llu times, constant %llu (expected 1, %d)",
+              k, (unsigned long long)dn, (unsigned long long)dc, k);
+    }
+    CHECK(vk_rtstats_hits(VK_RTSTATS_INF) == inf0, "inf rule hit on targets without an infinity");
+    b->texture_release(&t);
+    b->pool_fini(&pool);
+    return 0;
+}
+
 int probe_vkexec(void) {
     main_tid = plat_thread_id();
     const GfxBackend *b = &gfx_vulkan_backend;
@@ -588,6 +629,7 @@ int probe_vkexec(void) {
     int nvnx_bytes = 0, mirror_bytes = 0;
     if (!bad) bad = test_nvnx(b, guest, &nvnx_bytes);
     if (!bad) bad = test_mirror(b, guest, &mirror_bytes);
+    if (!bad) bad = test_rtstats(b, guest);
     b->finish();
     vk_pipeline_shutdown();   // the pipelines and the replay's stand-ins go before the device
     vk_exec_draw_shutdown();
@@ -616,6 +658,8 @@ int probe_vkexec(void) {
     printf("probe-vkexec: c0 and zero parts passed (c0 tables, dispatch size, point size and base instance at their offsets, "
            "unbound slots zero; %d bytes of an unwritten physical-pool texture read zero, MKW_FIX_ZERO=%s)\n",
            zero_bytes, cfg_value("MKW_FIX_ZERO"));
+    printf("probe-vkexec: rtstats part passed (MKW_RTSTATS: a NaN rectangle in a %dx%d RGBA16F target hit the nan rule "
+           "only, the same target all grey the constant rule only, no inf)\n", TEX_W, TEX_H);
     if (vk_mirror_on)
         printf("probe-vkexec: mirror part passed (B2B and fill in a VRAM mirror written back by the fence, a CPU write "
                "between submissions mirrored, CPU bytes beside a fill kept, %d bytes compared)\n", mirror_bytes);
